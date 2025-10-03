@@ -14,8 +14,12 @@ export default function Catalog() {
 
   useEffect(() => {
     const loadProducts = async () => {
-      const data = await Product.list("-created_date");
-      setProducts(data);
+      try {
+        const data = await Product.getAll();
+        setProducts(data);
+      } catch (error) {
+        console.error('Error loading products:', error);
+      }
     };
     loadProducts();
   }, []);
@@ -26,7 +30,7 @@ export default function Catalog() {
     if (searchTerm) {
       result = result.filter(p =>
         p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.description?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
@@ -46,7 +50,7 @@ export default function Catalog() {
         result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         break;
       default:
-        result.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+        result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
 
     setFilteredProducts(result);

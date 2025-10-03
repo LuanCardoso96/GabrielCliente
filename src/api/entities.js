@@ -1,5 +1,6 @@
 // Firebase entities for Firestore collections
 import { 
+  db,
   collection, 
   doc, 
   getDocs, 

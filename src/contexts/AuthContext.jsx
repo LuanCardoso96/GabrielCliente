@@ -1,6 +1,6 @@
 // Authentication Context for managing user state
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChange, getCurrentUser } from '../firebase/auth.js';
+import { onAuthStateChange, getCurrentUser, isAdmin } from '../firebase/auth.js';
 import { User } from '../api/entities.js';
 
 const AuthContext = createContext();
@@ -28,11 +28,18 @@ export const AuthProvider = ({ children }) => {
           // Get user profile from Firestore
           const profile = await User.getById(user.uid);
           setUserProfile(profile);
-          setIsAdmin(profile?.role === 'admin');
+          
+          // Check if user is admin
+          const adminStatus = await isAdmin(user);
+          console.log('User email:', user.email, 'Admin status:', adminStatus);
+          setIsAdmin(adminStatus);
         } catch (error) {
           console.error('Error fetching user profile:', error);
           setUserProfile(null);
-          setIsAdmin(false);
+          // Even if there's an error, check admin status by email
+          const adminStatus = user.email === 'dsconstrucoesdev@gmail.com';
+          console.log('Error occurred, checking admin by email:', user.email, 'Admin status:', adminStatus);
+          setIsAdmin(adminStatus);
         }
       } else {
         setUserProfile(null);

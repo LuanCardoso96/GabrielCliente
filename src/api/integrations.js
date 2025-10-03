@@ -1,5 +1,6 @@
 // Firebase integrations for external services
 import { 
+  storage,
   ref, 
   uploadBytes, 
   getDownloadURL, 

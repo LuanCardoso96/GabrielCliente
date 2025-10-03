@@ -25,9 +25,14 @@ export default function Home() {
   }, [featuredProducts]);
 
   const loadProducts = async () => {
-    const products = await Product.list("-created_date");
-    setAllProducts(products);
-    setFeaturedProducts(products.filter(p => p.featured).slice(0, 3));
+    try {
+      const products = await Product.getAll();
+      setAllProducts(products);
+      // For now, show first 3 products as featured
+      setFeaturedProducts(products.slice(0, 3));
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
   };
 
   const nextSlide = () => {
@@ -52,7 +57,7 @@ export default function Home() {
               }`}
             >
               <img
-                src={product.images?.[0] || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=1200"}
+                src={product.imageUrl || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=1200"}
                 alt={product.name}
                 className="w-full h-full object-cover opacity-30"
               />
@@ -97,7 +102,7 @@ export default function Home() {
                         <div className="grid md:grid-cols-2 gap-8 p-8">
                           <div className="relative h-96 rounded-xl overflow-hidden">
                             <img
-                              src={product.images?.[0] || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=800"}
+                              src={product.imageUrl || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=800"}
                               alt={product.name}
                               className="w-full h-full object-cover"
                             />
@@ -111,7 +116,7 @@ export default function Home() {
                           
                           <div className="flex flex-col justify-center">
                             <h3 className="text-3xl font-bold text-white mb-2">{product.name}</h3>
-                            <p className="text-yellow-400 text-xl mb-4">{product.brand}</p>
+                            <p className="text-yellow-400 text-xl mb-4">{product.category}</p>
                             <p className="text-gray-400 mb-6 line-clamp-4">{product.description}</p>
                             <div className="flex items-center justify-between">
                               <span className="text-4xl font-bold text-yellow-500">

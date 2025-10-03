@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { User } from "@/api/entities";
+import { useAuth } from "@/contexts/AuthContext";
+import { signOutUser } from "@/firebase/auth";
 import { 
   ShoppingBag, 
   User as UserIcon, 
@@ -28,30 +29,31 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export default function Layout({ children }) {
-  const [user, setUser] = useState(null);
   const [cartCount, setCartCount] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
-  const isAdmin = user?.email === "dsconstrucoesdev@gmail.com";
+  const navigate = useNavigate();
+  const { currentUser, userProfile, isAdmin } = useAuth();
   const isAdminPage = location.pathname.includes("/admin");
 
   useEffect(() => {
-    loadUser();
-  }, []);
+    if (currentUser) {
+      // Load cart count from user profile or local storage
+      setCartCount(0); // TODO: Implement cart functionality
+    }
+  }, [currentUser]);
 
-  const loadUser = async () => {
+  const handleLogout = async () => {
     try {
-      const currentUser = await User.me();
-      setUser(currentUser);
-      setCartCount(currentUser.cart?.length || 0);
+      await signOutUser();
+      navigate('/');
     } catch (error) {
-      setUser(null);
+      console.error('Error signing out:', error);
     }
   };
 
-  const handleLogout = async () => {
-    await User.logout();
-    window.location.href = createPageUrl("Home");
+  const handleLogin = () => {
+    navigate('/Auth');
   };
 
   if (isAdminPage) {
@@ -256,7 +258,7 @@ export default function Layout({ children }) {
                 </Button>
               </Link>
 
-              {user ? (
+              {currentUser ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="text-gray-300 hover:text-yellow-400">
@@ -265,8 +267,8 @@ export default function Layout({ children }) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="bg-gray-900 border-yellow-600/20">
                     <div className="px-3 py-2 border-b border-yellow-600/20">
-                      <p className="text-sm font-medium text-white">{user.full_name}</p>
-                      <p className="text-xs text-gray-400">{user.email}</p>
+                      <p className="text-sm font-medium text-white">{userProfile?.displayName || currentUser?.displayName || 'Usuário'}</p>
+                      <p className="text-xs text-gray-400">{currentUser?.email}</p>
                     </div>
                     <Link to={createPageUrl("Profile")}>
                       <DropdownMenuItem className="text-gray-300 hover:text-yellow-400 cursor-pointer">
@@ -278,7 +280,7 @@ export default function Layout({ children }) {
                         Meus Pedidos
                       </DropdownMenuItem>
                     </Link>
-                    {isAdmin && (
+                    {(isAdmin || currentUser?.email === 'dsconstrucoesdev@gmail.com') && (
                       <>
                         <DropdownMenuSeparator className="bg-yellow-600/20" />
                         <Link to={createPageUrl("AdminDashboard")}>
@@ -300,7 +302,7 @@ export default function Layout({ children }) {
                 </DropdownMenu>
               ) : (
                 <Button 
-                  onClick={() => User.login()}
+                  onClick={handleLogin}
                   className="bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black font-medium"
                 >
                   Entrar

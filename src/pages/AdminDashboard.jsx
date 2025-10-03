@@ -1,199 +1,294 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { createPageUrl } from "@/utils";
-import { User } from "@/api/entities";
-import { Order } from "@/api/entities";
-import { Product } from "@/api/entities";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, Package, ShoppingCart, Users, TrendingUp, AlertCircle } from "lucide-react";
-import moment from "moment";
+import React, { useState, useEffect } from "react";
+import { Order, User, Product } from "@/api/entities";
+import { 
+  ShoppingBag, 
+  Users, 
+  Package, 
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  Eye,
+  EyeOff
+} from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import AdminLayout from "@/components/admin/AdminLayout";
 
 export default function AdminDashboard() {
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    totalRevenue: 0,
     totalOrders: 0,
-    totalProducts: 0,
+    totalRevenue: 0,
     totalCustomers: 0,
-    recentOrders: [],
-    lowStockProducts: []
+    totalProducts: 0,
+    monthlyRevenue: 0,
+    monthlyOrders: 0,
+    topProducts: [],
+    recentOrders: []
   });
-
-  const checkAdmin = useCallback(async () => {
-    try {
-      const user = await User.me();
-      if (user.email !== "dsconstrucoesdev@gmail.com") {
-        navigate(createPageUrl("Home"));
-        return;
-      }
-      await loadDashboardData();
-    } catch (error) {
-      navigate(createPageUrl("Home"));
-    }
-  }, [navigate]);
+  const [loading, setLoading] = useState(true);
+  const [showRevenue, setShowRevenue] = useState(false);
 
   useEffect(() => {
-    checkAdmin();
-  }, [checkAdmin]);
+    loadDashboardData();
+  }, []);
 
   const loadDashboardData = async () => {
-    const orders = await Order.list("-created_date");
-    const products = await Product.list();
-    const users = await User.list();
+    try {
+      setLoading(true);
+      
+      // Load orders
+      const orders = await Order.getAll();
+      
+      // Load customers
+      const customers = await User.getAll();
+      
+      // Load products
+      const products = await Product.getAll();
 
-    const totalRevenue = orders
-      .filter(o => o.status === 'paid' || o.status === 'processing' || o.status === 'shipped' || o.status === 'delivered')
-      .reduce((sum, order) => sum + (order.total_amount || 0), 0);
+      // Calculate stats
+      const totalOrders = orders.length;
+      const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+      const totalCustomers = customers.length;
+      const totalProducts = products.length;
 
-    const lowStockProducts = products.filter(p => (p.stock || 0) < 5);
+      // Calculate monthly stats
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      
+      const monthlyOrders = orders.filter(order => {
+        const orderDate = new Date(order.createdAt);
+        return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+      });
+      
+      const monthlyRevenue = monthlyOrders.reduce((sum, order) => sum + (order.total || 0), 0);
 
-    setStats({
-      totalRevenue,
-      totalOrders: orders.length,
-      totalProducts: products.length,
-      totalCustomers: users.length,
-      recentOrders: orders.slice(0, 5),
-      lowStockProducts
-    });
+      // Get top products
+      const productSales = {};
+      orders.forEach(order => {
+        if (order.items) {
+          order.items.forEach(item => {
+            if (item.productId) {
+              productSales[item.productId] = (productSales[item.productId] || 0) + item.quantity;
+            }
+          });
+        }
+      });
 
-    setLoading(false);
+      const topProducts = Object.entries(productSales)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5)
+        .map(([productId, sales]) => {
+          const product = products.find(p => p.id === productId);
+          return {
+            id: productId,
+            name: product?.name || 'Produto não encontrado',
+            sales
+          };
+        });
+
+      // Get recent orders
+      const recentOrders = orders.slice(0, 10).map(order => ({
+        id: order.id,
+        customerName: order.customerName || 'Cliente não informado',
+        total: order.total || 0,
+        status: order.status || 'pending',
+        createdAt: order.createdAt
+      }));
+
+      setStats({
+        totalOrders,
+        totalRevenue,
+        totalCustomers,
+        totalProducts,
+        monthlyRevenue,
+        monthlyOrders: monthlyOrders.length,
+        topProducts,
+        recentOrders
+      });
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('pt-BR');
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'completed': return 'bg-green-500';
+      case 'pending': return 'bg-yellow-500';
+      case 'cancelled': return 'bg-red-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'completed': return 'Concluído';
+      case 'pending': return 'Pendente';
+      case 'cancelled': return 'Cancelado';
+      default: return 'Desconhecido';
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500" />
-      </div>
+      <AdminLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-yellow-400 text-xl">Carregando dashboard...</div>
+        </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-4xl font-bold text-white mb-2">Dashboard</h1>
-        <p className="text-gray-400">Visão geral do seu e-commerce</p>
+    <AdminLayout>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-white mb-2">Dashboard Administrativo</h1>
+        <p className="text-gray-400">Visão geral do seu negócio</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-gray-900 border-yellow-600/20">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-400">Faturamento Total</CardTitle>
-            <DollarSign className="w-4 h-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-white">R$ {stats.totalRevenue.toFixed(2)}</div>
-            <p className="text-xs text-gray-400 mt-1">Vendas confirmadas</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900 border-yellow-600/20">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-400">Total de Pedidos</CardTitle>
-            <ShoppingCart className="w-4 h-4 text-blue-500" />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <Card className="bg-gray-700 border-gray-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-gray-300">Total de Pedidos</CardTitle>
+            <ShoppingBag className="h-4 w-4 text-yellow-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">{stats.totalOrders}</div>
-            <p className="text-xs text-gray-400 mt-1">Todos os pedidos</p>
+            <p className="text-xs text-gray-400">
+              {stats.monthlyOrders} este mês
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gray-900 border-yellow-600/20">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-400">Produtos</CardTitle>
-            <Package className="w-4 h-4 text-green-500" />
+        <Card className="bg-gray-700 border-gray-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-gray-300">Receita Total</CardTitle>
+            <div className="flex items-center space-x-2">
+              <DollarSign className="h-4 w-4 text-yellow-400" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowRevenue(!showRevenue)}
+                className="h-6 w-6 p-0"
+              >
+                {showRevenue ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-white">{stats.totalProducts}</div>
-            <p className="text-xs text-gray-400 mt-1">No catálogo</p>
+            <div className="text-2xl font-bold text-white">
+              {showRevenue ? formatCurrency(stats.totalRevenue) : '••••••'}
+            </div>
+            <p className="text-xs text-gray-400">
+              {showRevenue ? formatCurrency(stats.monthlyRevenue) : '••••••'} este mês
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gray-900 border-yellow-600/20">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-400">Clientes</CardTitle>
-            <Users className="w-4 h-4 text-purple-500" />
+        <Card className="bg-gray-700 border-gray-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-gray-300">Total de Clientes</CardTitle>
+            <Users className="h-4 w-4 text-yellow-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">{stats.totalCustomers}</div>
-            <p className="text-xs text-gray-400 mt-1">Cadastrados</p>
+            <p className="text-xs text-gray-400">
+              Clientes cadastrados
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gray-700 border-gray-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-gray-300">Total de Produtos</CardTitle>
+            <Package className="h-4 w-4 text-yellow-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-white">{stats.totalProducts}</div>
+            <p className="text-xs text-gray-400">
+              Produtos cadastrados
+            </p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-gray-900 border-yellow-600/20">
+        {/* Top Products */}
+        <Card className="bg-gray-700 border-gray-600">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-yellow-500" />
-              Pedidos Recentes
-            </CardTitle>
+            <CardTitle className="text-white">Produtos Mais Vendidos</CardTitle>
+            <CardDescription className="text-gray-400">
+              Top 5 produtos por quantidade vendida
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {stats.recentOrders.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">Nenhum pedido ainda</p>
-              ) : (
-                stats.recentOrders.map((order) => (
-                  <div key={order.id} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
-                    <div>
-                      <p className="text-white font-medium">#{order.id.slice(-8)}</p>
-                      <p className="text-sm text-gray-400">{order.customer_email}</p>
-                      <p className="text-xs text-gray-500">{moment(order.created_date).format('DD/MM/YYYY HH:mm')}</p>
+              {stats.topProducts.map((product, index) => (
+                <div key={product.id} className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-yellow-600 rounded-full flex items-center justify-center text-black font-bold text-sm">
+                      {index + 1}
                     </div>
-                    <div className="text-right">
-                      <p className="text-yellow-500 font-bold">R$ {order.total_amount.toFixed(2)}</p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        order.status === 'paid' ? 'bg-green-500/20 text-green-400' :
-                        order.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-blue-500/20 text-blue-400'
-                      }`}>
-                        {order.status}
-                      </span>
+                    <div>
+                      <p className="text-white font-medium">{product.name}</p>
+                      <p className="text-gray-400 text-sm">{product.sales} vendas</p>
                     </div>
                   </div>
-                ))
+                </div>
+              ))}
+              {stats.topProducts.length === 0 && (
+                <p className="text-gray-400 text-center py-4">Nenhum produto vendido ainda</p>
               )}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-gray-900 border-yellow-600/20">
+        {/* Recent Orders */}
+        <Card className="bg-gray-700 border-gray-600">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              Produtos com Estoque Baixo
-            </CardTitle>
+            <CardTitle className="text-white">Pedidos Recentes</CardTitle>
+            <CardDescription className="text-gray-400">
+              Últimos 10 pedidos realizados
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {stats.lowStockProducts.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">Todos os produtos com estoque adequado</p>
-              ) : (
-                stats.lowStockProducts.map((product) => (
-                  <div key={product.id} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={product.images?.[0] || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=100"}
-                        alt={product.name}
-                        className="w-12 h-12 object-cover rounded"
-                      />
-                      <div>
-                        <p className="text-white font-medium">{product.name}</p>
-                        <p className="text-sm text-gray-400">{product.brand}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-red-400 font-bold">{product.stock || 0} un.</span>
-                      <p className="text-xs text-gray-500">Estoque baixo</p>
-                    </div>
+              {stats.recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center justify-between p-3 bg-gray-600 rounded-lg">
+                  <div>
+                    <p className="text-white font-medium">{order.customerName}</p>
+                    <p className="text-gray-400 text-sm">{formatDate(order.createdAt)}</p>
                   </div>
-                ))
+                  <div className="text-right">
+                    <p className="text-white font-medium">{formatCurrency(order.total)}</p>
+                    <Badge className={`${getStatusColor(order.status)} text-white`}>
+                      {getStatusText(order.status)}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+              {stats.recentOrders.length === 0 && (
+                <p className="text-gray-400 text-center py-4">Nenhum pedido encontrado</p>
               )}
             </div>
           </CardContent>
         </Card>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

@@ -175,6 +175,11 @@ export const updateUserProfile = async (updates) => {
 export const isAdmin = async (user) => {
   if (!user) return false;
   
+  // Check specific admin email
+  if (user.email === 'dsconstrucoesdev@gmail.com') {
+    return true;
+  }
+  
   try {
     const userDoc = await User.getById(user.uid);
     return userDoc?.role === 'admin';

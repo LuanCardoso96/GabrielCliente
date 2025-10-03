@@ -1,326 +1,321 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { createPageUrl } from "@/utils";
-import { User } from "@/api/entities";
+import React, { useState, useEffect } from "react";
 import { Product } from "@/api/entities";
+import { UploadFile } from "@/api/integrations";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Package } from "lucide-react";
-import { UploadFile } from "@/api/integrations";
+import { Plus, Edit, Trash2, Search, Package, AlertCircle, Upload, Image as ImageIcon } from "lucide-react";
+import AdminLayout from "@/components/admin/AdminLayout";
 
 export default function AdminProducts() {
-  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [uploading, setUploading] = useState(false);
-
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    price: '',
-    brand: '',
-    volume: '',
-    category: 'masculino',
-    stock: '',
-    featured: false,
-    notes: '',
-    images: []
+    name: "",
+    description: "",
+    price: "",
+    stock: "",
+    category: "",
+    imageUrl: ""
   });
-
-  const checkAdmin = useCallback(async () => {
-    try {
-      const user = await User.me();
-      if (user.email !== "dsconstrucoesdev@gmail.com") {
-        navigate(createPageUrl("Home"));
-        return;
-      }
-      await loadProducts();
-    } catch (error) {
-      navigate(createPageUrl("Home"));
-    }
-  }, [navigate]);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
 
   useEffect(() => {
-    checkAdmin();
-  }, [checkAdmin]);
+    loadProducts();
+  }, []);
 
   const loadProducts = async () => {
-    const data = await Product.list("-created_date");
-    setProducts(data);
-    setLoading(false);
+    try {
+      setLoading(true);
+      const productsList = await Product.getAll();
+      setProducts(productsList);
+    } catch (error) {
+      console.error('Error loading products:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleImageUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (formData.images.length + files.length > 4) {
-      alert('Máximo de 4 imagens por produto');
-      return;
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      // Create preview URL
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
     }
-
-    setUploading(true);
-    const uploadedUrls = [];
-
-    for (const file of files) {
-      try {
-        const response = await UploadFile({ file });
-        uploadedUrls.push(response.file_url);
-      } catch (error) {
-        console.error('Erro ao fazer upload:', error);
-      }
-    }
-
-    setFormData({ ...formData, images: [...formData.images, ...uploadedUrls] });
-    setUploading(false);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    const productData = {
-      ...formData,
-      price: parseFloat(formData.price),
-      stock: parseInt(formData.stock) || 0
-    };
-
-    if (editingProduct) {
-      await Product.update(editingProduct.id, productData);
-    } else {
-      await Product.create(productData);
+    try {
+      setUploading(true);
+      
+      // First, save the product to Firestore
+      const productData = {
+        name: formData.name,
+        description: formData.description,
+        price: parseFloat(formData.price),
+        stock: parseInt(formData.stock),
+        category: formData.category,
+        imageUrl: null, // Will be updated later if image is uploaded
+        createdAt: new Date()
+      };
+      
+      let productId;
+      if (editingProduct) {
+        await Product.update(editingProduct.id, productData);
+        productId = editingProduct.id;
+      } else {
+        const docRef = await Product.create(productData);
+        productId = docRef.id;
+      }
+      
+      // Upload image if file is selected (after saving product)
+      if (selectedFile) {
+        try {
+          const uploadResult = await UploadFile(selectedFile, 'products');
+          await Product.update(productId, { imageUrl: uploadResult.url });
+        } catch (uploadError) {
+          console.error('Error uploading image:', uploadError);
+          // Product is still saved, just without image
+        }
+      }
+      
+      await loadProducts();
+      setIsDialogOpen(false);
+      setEditingProduct(null);
+      setSelectedFile(null);
+      setPreviewUrl("");
+      setFormData({
+        name: "",
+        description: "",
+        price: "",
+        stock: "",
+        category: "",
+        imageUrl: ""
+      });
+    } catch (error) {
+      console.error('Error saving product:', error);
+    } finally {
+      setUploading(false);
     }
-
-    setDialogOpen(false);
-    resetForm();
-    loadProducts();
   };
 
   const handleEdit = (product) => {
     setEditingProduct(product);
     setFormData({
-      name: product.name || '',
-      description: product.description || '',
-      price: product.price || '',
-      brand: product.brand || '',
-      volume: product.volume || '',
-      category: product.category || 'masculino',
-      stock: product.stock || '',
-      featured: product.featured || false,
-      notes: product.notes || '',
-      images: product.images || []
+      name: product.name || "",
+      description: product.description || "",
+      price: product.price || "",
+      stock: product.stock || "",
+      category: product.category || "",
+      imageUrl: product.imageUrl || ""
     });
-    setDialogOpen(true);
+    setSelectedFile(null);
+    setPreviewUrl(product.imageUrl || "");
+    setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id) => {
-    if (confirm('Tem certeza que deseja excluir este produto?')) {
-      await Product.delete(id);
-      loadProducts();
+  const handleDelete = async (productId) => {
+    if (window.confirm('Tem certeza que deseja excluir este produto?')) {
+      try {
+        await Product.delete(productId);
+        await loadProducts();
+      } catch (error) {
+        console.error('Error deleting product:', error);
+      }
     }
   };
 
-  const resetForm = () => {
-    setEditingProduct(null);
-    setFormData({
-      name: '',
-      description: '',
-      price: '',
-      brand: '',
-      volume: '',
-      category: 'masculino',
-      stock: '',
-      featured: false,
-      notes: '',
-      images: []
-    });
+  const filteredProducts = products.filter(product =>
+    product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.category?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500" />
-      </div>
+      <AdminLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-yellow-400 text-xl">Carregando produtos...</div>
+        </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-4xl font-bold text-white mb-2">Produtos</h1>
-          <p className="text-gray-400">Gerencie o catálogo de perfumes</p>
-        </div>
+    <AdminLayout>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-white mb-2">Gerenciar Produtos</h1>
+        <p className="text-gray-400">Adicione, edite ou remova produtos do catálogo</p>
+      </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <div className="flex justify-between items-center mb-6">
+        <div className="relative">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Buscar produtos..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 w-64"
+          />
+        </div>
+        
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button 
-              onClick={resetForm}
-              className="bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black"
-            >
+            <Button className="bg-yellow-600 hover:bg-yellow-700 text-black">
               <Plus className="w-4 h-4 mr-2" />
-              Novo Produto
+              Adicionar Produto
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-gray-900 border-yellow-600/20 max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="bg-gray-800 border-gray-600">
             <DialogHeader>
               <DialogTitle className="text-white">
-                {editingProduct ? 'Editar Produto' : 'Novo Produto'}
+                {editingProduct ? 'Editar Produto' : 'Adicionar Produto'}
               </DialogTitle>
             </DialogHeader>
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label className="text-white">Nome *</Label>
+                <Label htmlFor="name" className="text-gray-300">Nome do Produto</Label>
                 <Input
+                  id="name"
                   value={formData.name}
                   onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="bg-gray-700 border-gray-600 text-white"
                   required
-                  className="bg-gray-800 border-yellow-600/20 text-white"
                 />
               </div>
-
+              
               <div>
-                <Label className="text-white">Descrição</Label>
+                <Label htmlFor="description" className="text-gray-300">Descrição</Label>
                 <Textarea
+                  id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  className="bg-gray-800 border-yellow-600/20 text-white h-24"
+                  className="bg-gray-700 border-gray-600 text-white"
                 />
               </div>
-
+              
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-white">Preço (R$) *</Label>
+                  <Label htmlFor="price" className="text-gray-300">Preço</Label>
                   <Input
+                    id="price"
                     type="number"
                     step="0.01"
                     value={formData.price}
                     onChange={(e) => setFormData({...formData, price: e.target.value})}
+                    className="bg-gray-700 border-gray-600 text-white"
                     required
-                    className="bg-gray-800 border-yellow-600/20 text-white"
                   />
                 </div>
-
+                
                 <div>
-                  <Label className="text-white">Estoque</Label>
+                  <Label htmlFor="stock" className="text-gray-300">Estoque</Label>
                   <Input
+                    id="stock"
                     type="number"
                     value={formData.stock}
                     onChange={(e) => setFormData({...formData, stock: e.target.value})}
-                    className="bg-gray-800 border-yellow-600/20 text-white"
+                    className="bg-gray-700 border-gray-600 text-white"
+                    required
                   />
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-white">Marca</Label>
-                  <Input
-                    value={formData.brand}
-                    onChange={(e) => setFormData({...formData, brand: e.target.value})}
-                    className="bg-gray-800 border-yellow-600/20 text-white"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-white">Volume</Label>
-                  <Input
-                    value={formData.volume}
-                    onChange={(e) => setFormData({...formData, volume: e.target.value})}
-                    placeholder="Ex: 100ml"
-                    className="bg-gray-800 border-yellow-600/20 text-white"
-                  />
-                </div>
-              </div>
-
+              
               <div>
-                <Label className="text-white">Categoria</Label>
-                <Select value={formData.category} onValueChange={(value) => setFormData({...formData, category: value})}>
-                  <SelectTrigger className="bg-gray-800 border-yellow-600/20 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gray-800 border-yellow-600/20">
-                    <SelectItem value="masculino">Masculino</SelectItem>
-                    <SelectItem value="feminino">Feminino</SelectItem>
-                    <SelectItem value="unissex">Unissex</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-white">Notas Olfativas</Label>
-                <Textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                  className="bg-gray-800 border-yellow-600/20 text-white h-20"
-                  placeholder="Ex: Notas de topo: Limão..."
-                />
-              </div>
-
-              <div>
-                <Label className="text-white flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.featured}
-                    onChange={(e) => setFormData({...formData, featured: e.target.checked})}
-                    className="w-4 h-4"
-                  />
-                  Produto em Destaque
-                </Label>
-              </div>
-
-              <div>
-                <Label className="text-white">Imagens (máx. 4)</Label>
+                <Label htmlFor="category" className="text-gray-300">Categoria</Label>
                 <Input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImageUpload}
-                  disabled={uploading || formData.images.length >= 4}
-                  className="bg-gray-800 border-yellow-600/20 text-white"
+                  id="category"
+                  value={formData.category}
+                  onChange={(e) => setFormData({...formData, category: e.target.value})}
+                  className="bg-gray-700 border-gray-600 text-white"
                 />
-                {uploading && <p className="text-yellow-400 text-sm mt-2">Fazendo upload...</p>}
-                
-                {formData.images.length > 0 && (
-                  <div className="grid grid-cols-4 gap-2 mt-4">
-                    {formData.images.map((url, index) => (
-                      <div key={index} className="relative">
-                        <img src={url} alt="" className="w-full h-20 object-cover rounded" />
-                        <button
-                          type="button"
-                          onClick={() => setFormData({...formData, images: formData.images.filter((_, i) => i !== index)})}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-
-              <div className="flex gap-3 pt-4">
+              
+              <div>
+                <Label htmlFor="image" className="text-gray-300">
+                  Imagem do Produto <span className="text-gray-500 text-sm">(opcional)</span>
+                </Label>
+                <div className="space-y-4">
+                  <div className="flex items-center space-x-4">
+                    <Input
+                      id="image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      className="bg-gray-700 border-gray-600 text-white file:bg-gray-600 file:text-white file:border-0 file:rounded-md file:px-4 file:py-2"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('image').click()}
+                      className="border-gray-600 text-gray-300"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Selecionar
+                    </Button>
+                  </div>
+                  
+                  {previewUrl && (
+                    <div className="mt-4">
+                      <p className="text-gray-300 text-sm mb-2">Preview:</p>
+                      <img
+                        src={previewUrl}
+                        alt="Preview"
+                        className="w-32 h-32 object-cover rounded-lg border border-gray-600"
+                      />
+                    </div>
+                  )}
+                  
+                  {!previewUrl && !selectedFile && (
+                    <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center">
+                      <ImageIcon className="w-8 h-8 text-gray-500 mx-auto mb-2" />
+                      <p className="text-gray-400 text-sm">Nenhuma imagem selecionada</p>
+                      <p className="text-gray-500 text-xs">Você pode adicionar uma imagem depois</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-2">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setDialogOpen(false);
-                    resetForm();
-                  }}
-                  className="flex-1 border-yellow-600/50"
+                  onClick={() => setIsDialogOpen(false)}
+                  className="border-gray-600 text-gray-300"
                 >
                   Cancelar
                 </Button>
-                <Button
-                  type="submit"
-                  className="flex-1 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black"
+                <Button 
+                  type="submit" 
+                  className="bg-yellow-600 hover:bg-yellow-700 text-black"
+                  disabled={uploading}
                 >
-                  {editingProduct ? 'Salvar' : 'Criar'}
+                  {uploading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black mr-2"></div>
+                      {selectedFile ? 'Enviando...' : 'Salvando...'}
+                    </>
+                  ) : (
+                    editingProduct ? 'Salvar' : 'Adicionar'
+                  )}
                 </Button>
               </div>
             </form>
@@ -328,69 +323,75 @@ export default function AdminProducts() {
         </Dialog>
       </div>
 
-      {products.length === 0 ? (
-        <Card className="bg-gray-900 border-yellow-600/20 p-12 text-center">
-          <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-white mb-2">Nenhum produto cadastrado</h3>
-          <p className="text-gray-400">Comece adicionando seu primeiro produto</p>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map((product) => (
-            <Card key={product.id} className="bg-gray-900 border-yellow-600/20 overflow-hidden">
-              <div className="relative h-48">
-                <img
-                  src={product.images?.[0] || "https://images.unsplash.com/photo-1541643600914-78b084683601?w=400"}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                />
-                {product.featured && (
-                  <span className="absolute top-2 right-2 bg-yellow-600 text-black px-2 py-1 rounded-full text-xs font-semibold">
-                    Destaque
-                  </span>
-                )}
-              </div>
-
-              <div className="p-4">
-                <h3 className="text-white font-bold text-lg mb-1">{product.name}</h3>
-                <p className="text-yellow-400 text-sm mb-2">{product.brand}</p>
-                <p className="text-gray-400 text-sm mb-3 line-clamp-2">{product.description}</p>
-
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-yellow-500 font-bold text-xl">R$ {product.price?.toFixed(2)}</span>
-                  <span className={`text-sm px-2 py-1 rounded-full ${
-                    (product.stock || 0) > 10 ? 'bg-green-500/20 text-green-400' :
-                    (product.stock || 0) > 0 ? 'bg-yellow-500/20 text-yellow-400' :
-                    'bg-red-500/20 text-red-400'
-                  }`}>
-                    {product.stock || 0} un.
-                  </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredProducts.map((product) => (
+          <Card key={product.id} className="bg-gray-700 border-gray-600">
+            <CardHeader>
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <CardTitle className="text-white text-lg">{product.name}</CardTitle>
+                  <p className="text-gray-400 text-sm">{product.category}</p>
                 </div>
-
-                <div className="flex gap-2">
+                <div className="flex space-x-2">
                   <Button
-                    variant="outline"
                     size="sm"
+                    variant="outline"
                     onClick={() => handleEdit(product)}
-                    className="flex-1 border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/20"
+                    className="border-gray-600 text-gray-300 hover:bg-gray-600"
                   >
-                    <Pencil className="w-4 h-4 mr-1" />
-                    Editar
+                    <Edit className="w-3 h-3" />
                   </Button>
                   <Button
-                    variant="outline"
                     size="sm"
+                    variant="outline"
                     onClick={() => handleDelete(product.id)}
-                    className="border-red-500/50 text-red-400 hover:bg-red-500/20"
+                    className="border-red-600 text-red-400 hover:bg-red-900/20"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3 h-3" />
                   </Button>
                 </div>
               </div>
-            </Card>
-          ))}
+            </CardHeader>
+            <CardContent>
+              {product.imageUrl ? (
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="w-full h-48 object-cover rounded-lg mb-4"
+                />
+              ) : (
+                <div className="w-full h-48 bg-gray-600 rounded-lg mb-4 flex items-center justify-center">
+                  <div className="text-center">
+                    <ImageIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-400 text-sm">Sem imagem</p>
+                  </div>
+                </div>
+              )}
+              <p className="text-gray-300 text-sm mb-4 line-clamp-3">
+                {product.description}
+              </p>
+              <div className="flex justify-between items-center">
+                <span className="text-yellow-400 font-bold text-lg">
+                  {formatCurrency(product.price)}
+                </span>
+                <Badge className={product.stock > 5 ? "bg-green-600" : "bg-red-600"}>
+                  {product.stock} em estoque
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {filteredProducts.length === 0 && (
+        <div className="text-center py-12">
+          <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-gray-400 mb-2">Nenhum produto encontrado</h3>
+          <p className="text-gray-500">
+            {searchTerm ? 'Tente ajustar sua busca' : 'Adicione seu primeiro produto'}
+          </p>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }
