@@ -12,6 +12,8 @@ import Checkout from "./Checkout";
 
 import PaymentSuccess from "./PaymentSuccess";
 
+import PaymentCanceled from "./PaymentCanceled";
+
 import MyOrders from "./MyOrders";
 
 import Profile from "./Profile";
@@ -45,6 +47,8 @@ const PAGES = {
     Checkout: Checkout,
     
     PaymentSuccess: PaymentSuccess,
+    
+    PaymentCanceled: PaymentCanceled,
     
     MyOrders: MyOrders,
     
@@ -102,6 +106,8 @@ function PagesContent() {
                 <Route path="/Checkout" element={<Checkout />} />
                 
                 <Route path="/PaymentSuccess" element={<PaymentSuccess />} />
+                
+                <Route path="/PaymentCanceled" element={<PaymentCanceled />} />
                 
                 <Route path="/MyOrders" element={<MyOrders />} />
                 

@@ -21,4 +21,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
+  },
+  define: {
+    global: 'globalThis',
+  },
+  // Completely disable service worker and PWA features
+  worker: {
+    format: 'es'
+  }
 }) 

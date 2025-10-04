@@ -10,25 +10,68 @@ import {
   orderBy 
 } from './firebaseClient.js';
 
-// Calculate shipping based on location and weight
+// Calculate shipping using local calculation (no external API dependency)
+import { calculateLocalShipping } from './localShipping.js';
+
 export const calculateShipping = async (address, items) => {
-  // Basic shipping calculation logic
-  // You can implement more complex logic based on your needs
-  const baseShipping = 10; // Base shipping cost
-  const weightMultiplier = 0.5; // Cost per kg
-  
-  let totalWeight = 0;
-  items.forEach(item => {
-    totalWeight += (item.weight || 0.5) * item.quantity;
-  });
-  
-  const shippingCost = baseShipping + (totalWeight * weightMultiplier);
-  
-  return {
-    cost: shippingCost,
-    estimatedDays: 3, // Estimated delivery days
-    carrier: 'Correios'
-  };
+  try {
+    // Calculate total quantity
+    let totalQuantity = 0;
+    items.forEach(item => {
+      totalQuantity += item.quantity || 1;
+    });
+
+    // Use local shipping calculation
+    const quotes = calculateLocalShipping(
+      address.cep?.replace(/\D/g, '') || '00000000',
+      totalQuantity
+    );
+
+    // Return the cheapest option
+    const cheapestQuote = quotes
+      .filter(quote => !quote.has_error && quote.price)
+      .sort((a, b) => (a.price || 0) - (b.price || 0))[0];
+
+    if (cheapestQuote) {
+      return {
+        cost: cheapestQuote.price || 0,
+        estimatedDays: cheapestQuote.delivery_time || 3,
+        carrier: cheapestQuote.company?.name || 'Correios',
+        quotes: quotes // Return all quotes for more options
+      };
+    }
+
+    // Fallback to basic calculation
+    const baseShipping = 15;
+    const quantityMultiplier = 2;
+    const shippingCost = baseShipping + (totalQuantity * quantityMultiplier);
+    
+    return {
+      cost: shippingCost,
+      estimatedDays: 3,
+      carrier: 'Correios',
+      quotes: []
+    };
+  } catch (error) {
+    console.error('Error calculating shipping:', error);
+    
+    // Fallback calculation
+    const baseShipping = 15;
+    const quantityMultiplier = 2;
+    let totalQuantity = 0;
+    items.forEach(item => {
+      totalQuantity += item.quantity || 1;
+    });
+    
+    const shippingCost = baseShipping + (totalQuantity * quantityMultiplier);
+    
+    return {
+      cost: shippingCost,
+      estimatedDays: 3,
+      carrier: 'Correios',
+      quotes: []
+    };
+  }
 };
 
 // Create checkout session (simplified version)

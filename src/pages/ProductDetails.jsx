@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Product } from "@/api/entities";
 import { calculateShipping } from "@/api/functions";
+import { calculateShippingWithSuperFrete } from "@/api/superfrete";
+import { initiateCheckout } from "@/api/stripe";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +24,7 @@ import {
 export default function ProductDetails() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { currentUser } = useAuth();
   const [product, setProduct] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -30,8 +34,10 @@ export default function ProductDetails() {
     city: "",
     state: ""
   });
-  const [shippingCost, setShippingCost] = useState(0);
+  const [shippingQuotes, setShippingQuotes] = useState([]);
+  const [selectedQuote, setSelectedQuote] = useState(null);
   const [calculatingShipping, setCalculatingShipping] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   useEffect(() => {
     loadProduct();
@@ -63,7 +69,7 @@ export default function ProductDetails() {
   };
 
   const calculateShippingCost = async () => {
-    if (!shippingAddress.cep || !shippingAddress.city || !shippingAddress.state) {
+    if (!shippingAddress.cep || !product) {
       return;
     }
 
@@ -76,16 +82,24 @@ export default function ProductDetails() {
       }];
 
       const result = await calculateShipping(shippingAddress, items);
-      setShippingCost(result.cost);
-    } catch (error) {
-      console.error('Error calculating shipping:', error);
+      setShippingQuotes(result.quotes || []);
+      
+      // Auto-select cheapest quote
+      if (result.quotes && result.quotes.length > 0) {
+        const cheapest = result.quotes
+          .filter(quote => !quote.has_error && quote.price)
+          .sort((a, b) => (a.price || 0) - (b.price || 0))[0];
+        setSelectedQuote(cheapest);
+      }
+    } catch (uploadError) {
+      console.error('Error calculating shipping:', uploadError);
     } finally {
       setCalculatingShipping(false);
     }
   };
 
   useEffect(() => {
-    if (shippingAddress.cep && shippingAddress.city && shippingAddress.state) {
+    if (shippingAddress.cep && product) {
       const timeoutId = setTimeout(calculateShippingCost, 1000);
       return () => clearTimeout(timeoutId);
     }
@@ -94,6 +108,28 @@ export default function ProductDetails() {
   const handleAddToCart = async () => {
     // TODO: Implement cart functionality
     console.log('Adding to cart:', { product, quantity });
+  };
+
+  const handleFinalizePurchase = async () => {
+    if (!currentUser) {
+      navigate('/Auth');
+      return;
+    }
+
+    if (!selectedQuote) {
+      alert('Por favor, selecione uma opção de frete');
+      return;
+    }
+
+    setProcessingPayment(true);
+    try {
+      await initiateCheckout(product, quantity, selectedQuote, currentUser);
+    } catch (error) {
+      console.error('Error finalizing purchase:', error);
+      alert('Erro ao processar pagamento. Tente novamente.');
+    } finally {
+      setProcessingPayment(false);
+    }
   };
 
   const handleBuyNow = async () => {
@@ -108,7 +144,7 @@ export default function ProductDetails() {
     }).format(value);
   };
 
-  const totalPrice = product ? (product.price * quantity) + shippingCost : 0;
+  const totalPrice = product ? (product.price * quantity) + (selectedQuote?.price || 0) : 0;
 
   if (loading) {
     return (
@@ -302,14 +338,45 @@ export default function ProductDetails() {
                   </div>
                 )}
                 
-                {shippingCost > 0 && (
-                  <div className="bg-gray-800 rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-300">Frete:</span>
-                      <span className="text-yellow-400 font-semibold">
-                        {formatCurrency(shippingCost)}
-                      </span>
-                    </div>
+                {shippingQuotes.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-gray-300 text-sm">Opções de Frete:</Label>
+                    {shippingQuotes.map((quote, index) => (
+                      <div
+                        key={index}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          selectedQuote?.id === quote.id
+                            ? 'border-yellow-500 bg-yellow-500/10'
+                            : 'border-gray-600 bg-gray-800 hover:border-gray-500'
+                        }`}
+                        onClick={() => setSelectedQuote(quote)}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-white font-medium">
+                              {quote.name}
+                            </p>
+                            <p className="text-gray-400 text-sm">
+                              {quote.company?.name || 'Transportadora'}
+                            </p>
+                            {quote.delivery_time && (
+                              <p className="text-gray-400 text-xs">
+                                {quote.delivery_time} dia(s)
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            {quote.has_error ? (
+                              <p className="text-red-400 text-sm">{quote.error}</p>
+                            ) : (
+                              <p className="text-yellow-400 font-semibold">
+                                {formatCurrency(quote.price || 0)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -330,10 +397,10 @@ export default function ProductDetails() {
                   </span>
                 </div>
                 
-                {shippingCost > 0 && (
+                {selectedQuote && (
                   <div className="flex justify-between">
                     <span className="text-gray-300">Frete:</span>
-                    <span className="text-white">{formatCurrency(shippingCost)}</span>
+                    <span className="text-white">{formatCurrency(selectedQuote.price || 0)}</span>
                   </div>
                 )}
                 
@@ -351,22 +418,30 @@ export default function ProductDetails() {
             {/* Action Buttons */}
             <div className="space-y-3">
               <Button
-                onClick={handleAddToCart}
-                disabled={product.stock === 0}
-                className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black font-semibold py-6 text-lg"
+                onClick={handleFinalizePurchase}
+                disabled={product.stock === 0 || !selectedQuote || processingPayment}
+                className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-6 text-lg"
               >
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Adicionar ao Carrinho
+                {processingPayment ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-5 h-5 mr-2" />
+                    Finalizar Compra
+                  </>
+                )}
               </Button>
               
               <Button
-                onClick={handleBuyNow}
-                disabled={product.stock === 0}
-                variant="outline"
-                className="w-full border-yellow-600 text-yellow-500 hover:bg-yellow-600 hover:text-black font-semibold py-6 text-lg"
+                onClick={handleAddToCart}
+                disabled={product.stock === 0 || !selectedQuote}
+                className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black font-semibold py-6 text-lg"
               >
-                <CreditCard className="w-5 h-5 mr-2" />
-                Finalizar Compra
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                {!selectedQuote ? 'Selecione uma opção de frete' : 'Adicionar ao Carrinho'}
               </Button>
             </div>
           </div>
