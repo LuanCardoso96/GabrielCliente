@@ -23,4 +23,26 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment variables and secrets
 .env
+*.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+stripe-config.env
+firebase-config.env
+
+# API Keys and secrets
+**/api-keys.json
+**/secrets.json
+**/credentials.json
+**/service-account.json
+
+# Stripe keys
+**/stripe-keys.txt
+**/stripe-secrets.txt
+
+# Firebase keys
+**/firebase-keys.json
+**/firebase-secrets.json
